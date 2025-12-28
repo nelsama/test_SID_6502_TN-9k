@@ -1,6 +1,10 @@
 # Directorios de librerías (repositorios independientes)
 libs/
 
+# Archivos VHDL (proyecto FPGA separado)
+vhdl/
+*.vhd
+
 # Archivos compilados
 build/
 *.o
