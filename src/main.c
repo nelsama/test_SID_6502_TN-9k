@@ -27,6 +27,7 @@
 /* Tocar nota CON LED sincronizado */
 void play_note(uint16_t freq, uint8_t wave, uint16_t duration_ms, uint8_t led) {
     LEDS = ~led;
+    sid_adsr(0, ADSR_LEAD);
     sid_freq(0, freq);
     sid_wave(0, wave);
     sid_gate_on(0);
