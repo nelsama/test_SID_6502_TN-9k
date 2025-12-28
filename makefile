@@ -86,7 +86,7 @@ $(MAIN_OBJ): $(SRC_DIR)/main.c
 $(UART_OBJ): $(UART_DIR)/uart.s
 	$(CA65) -t none -o $@ $<
 
-# SID (versión ensamblador optimizada)
+# SID (versión ASM optimizada con fixes)
 $(SID_OBJ): $(SID_DIR)/sid.s
 	$(CA65) -t none -o $@ $<
 

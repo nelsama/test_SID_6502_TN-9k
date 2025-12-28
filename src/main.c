@@ -661,8 +661,8 @@ int main(void) {
     while (1) {
         run_demo();
         delay_ms(1000);
-        mario_intro();
-        delay_ms(1500);
+        /* mario_intro(); */  /* Comentado - ROM overflow con librería C */
+        /* delay_ms(1500); */
     }
     return 0;
 }
