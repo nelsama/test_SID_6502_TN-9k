@@ -40,11 +40,6 @@ Demo espectacular con efectos de sonido y LEDs sincronizados al ritmo de la mús
 │   ├── uart-6502-cc65/     # UART optimizado en ASM
 │   ├── timer-6502-cc65/    # Timer de precisión
 │   └── sid/                # Librería SID 6581
-├── vhdl/                   # Código VHDL para FPGA
-│   ├── Board.vhd           # Top-level del sistema
-│   ├── sid_wrapper.vhd     # Wrapper del SID
-│   ├── uart_wrapper.vhd    # Wrapper UART
-│   └── NetSID/             # Implementación SID 6581
 ├── config/
 │   └── fpga.cfg            # Configuración del linker cc65
 ├── scripts/
