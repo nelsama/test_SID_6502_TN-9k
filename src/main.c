@@ -3,6 +3,7 @@
  * 
  * Demo con LEDs sincronizados al ritmo del sonido
  * El ciclo completo se repite infinitamente
+ * Usa librería SID optimizada en ASM
  * 
  * SID mapeado en $D400-$D41C (direcciones originales C64)
  */
@@ -19,52 +20,18 @@
 #define LEDS                 (*(volatile uint8_t*)0xC001)
 #define CONF_PORT_SALIDA_LED (*(volatile uint8_t*)0xC003)
 
-/* Aliases cortos para control bits (compatibilidad con código existente) */
-#define GATE        SID_GATE
-#define SYNC        SID_SYNC
-#define RING        SID_RING
-#define TEST        SID_TEST
-#define TRIANGLE    SID_TRIANGLE
-#define SAWTOOTH    SID_SAWTOOTH
-#define PULSE       SID_PULSE
-#define NOISE       SID_NOISE
-
-/* Aliases cortos para modos de filtro */
-#define FILT_LP     SID_FILT_LP
-#define FILT_BP     SID_FILT_BP
-#define FILT_HP     SID_FILT_HP
-
-/* Las notas se toman de sid.h (librería SID) */
-
 /* ============================================================================
  * FUNCIONES AUXILIARES
  * ============================================================================ */
 
-void sid_clear(void) {
-    sid_init();  /* Usar función de la librería */
-}
-
 /* Tocar nota CON LED sincronizado */
 void play_note(uint16_t freq, uint8_t wave, uint16_t duration_ms, uint8_t led) {
-    LEDS = ~led;  /* LED ON (activo bajo) */
-    SID_V1_FREQ_LO = freq & 0xFF;
-    SID_V1_FREQ_HI = (freq >> 8) & 0xFF;
-    SID_V1_CTRL = wave | GATE;
-    delay_ms(duration_ms);
-    SID_V1_CTRL = wave;
-    LEDS = 0xFF;  /* LED OFF */
-}
-
-/* Tocar nota sin pausa al final */
-void note_on(uint16_t freq, uint8_t wave, uint8_t led) {
     LEDS = ~led;
-    SID_V1_FREQ_LO = freq & 0xFF;
-    SID_V1_FREQ_HI = (freq >> 8) & 0xFF;
-    SID_V1_CTRL = wave | GATE;
-}
-
-void note_off(uint8_t wave) {
-    SID_V1_CTRL = wave;
+    sid_freq(0, freq);
+    sid_wave(0, wave);
+    sid_gate_on(0);
+    delay_ms(duration_ms);
+    sid_gate_off(0);
     LEDS = 0xFF;
 }
 
@@ -76,21 +43,18 @@ void fx_laser(void) {
     uint16_t freq;
     uint8_t led_shift;
     
-    SID_V1_AD = 0x00;
-    SID_V1_SR = 0xF0;
+    sid_adsr(0, ADSR_SFX);
     
     led_shift = 0;
     for (freq = 0x3000; freq > 0x0200; freq -= 0x0100) {
-        /* LEDs hacen efecto "cayendo" */
         LEDS = ~(0x80 >> (led_shift & 0x07));
         led_shift++;
-        
-        SID_V1_FREQ_LO = freq & 0xFF;
-        SID_V1_FREQ_HI = (freq >> 8) & 0xFF;
-        SID_V1_CTRL = SAWTOOTH | GATE;
+        sid_freq(0, freq);
+        sid_wave(0, SID_SAWTOOTH);
+        sid_gate_on(0);
         delay_ms(8);
     }
-    SID_V1_CTRL = 0;
+    sid_gate_off(0);
     LEDS = 0xFF;
 }
 
@@ -98,44 +62,33 @@ void fx_explosion(void) {
     uint8_t vol;
     uint16_t freq;
     
-    SID_V1_AD = 0x00;  /* Attack=0, Decay=0 - sonido inmediato */
-    SID_V1_SR = 0xF0;  /* Sustain=15, Release=0 */
-    SID_MODE_VOL = 0x0F;
+    sid_adsr(0, ADSR_SFX);
+    sid_volume(15);
     LEDS = 0x00;
     
-    /* Efecto de "boom" con NOISE - frecuencia alta bajando 
-     * IMPORTANTE: NOISE necesita frecuencia > 0 para que el LFSR avance */
-    SID_V1_FREQ_LO = 0xFF;
-    SID_V1_FREQ_HI = 0xFF;  /* Frecuencia máxima para ruido denso */
-    SID_V1_CTRL = NOISE | GATE;
-    delay_ms(50);  /* Impacto inicial */
+    sid_freq(0, 0xFFFF);
+    sid_wave(0, SID_NOISE);
+    sid_gate_on(0);
+    delay_ms(50);
     
-    /* Bajar frecuencia del ruido para simular "rumble" */
     for (freq = 0x8000; freq > 0x0800; freq -= 0x0400) {
-        SID_V1_FREQ_LO = freq & 0xFF;
-        SID_V1_FREQ_HI = (freq >> 8) & 0xFF;
+        sid_freq(0, freq);
         delay_ms(8);
     }
     
-    /* Fade out con NOISE - mantener frecuencia activa! */
     for (vol = 15; vol > 0; vol--) {
-        SID_MODE_VOL = vol;
-        
-        /* LEDs van apagándose */
+        sid_volume(vol);
         if (vol > 12) LEDS = 0x00;
         else if (vol > 9) LEDS = 0x81;
         else if (vol > 6) LEDS = 0xC3;
         else if (vol > 3) LEDS = 0xE7;
         else LEDS = 0xFF;
-        
-        /* Frecuencia baja pero NO cero - el LFSR necesita que el acumulador cambie */
-        SID_V1_FREQ_LO = 0x00;
-        SID_V1_FREQ_HI = 0x08 + vol;  /* Mantener freq > 0 siempre */
+        sid_freq(0, 0x0800 + (vol << 8));
         delay_ms(40);
     }
     
-    SID_V1_CTRL = 0;
-    SID_MODE_VOL = 0x0F;
+    sid_gate_off(0);
+    sid_volume(15);
     LEDS = 0xFF;
 }
 
@@ -144,32 +97,28 @@ void fx_siren(uint8_t cycles) {
     uint16_t freq;
     uint8_t led_pos;
     
-    SID_V1_AD = 0x00;
-    SID_V1_SR = 0xF0;
-    SID_V1_CTRL = TRIANGLE | GATE;
+    sid_adsr(0, ADSR_SFX);
+    sid_wave(0, SID_TRIANGLE);
+    sid_gate_on(0);
     
     for (i = 0; i < cycles; i++) {
-        /* Subir - LEDs van de izquierda a derecha */
         led_pos = 0;
         for (freq = 0x1000; freq < 0x2000; freq += 0x80) {
             LEDS = ~(0x01 << (led_pos & 0x07));
             led_pos++;
-            SID_V1_FREQ_LO = freq & 0xFF;
-            SID_V1_FREQ_HI = (freq >> 8) & 0xFF;
+            sid_freq(0, freq);
             delay_ms(6);
         }
-        /* Bajar - LEDs van de derecha a izquierda */
         led_pos = 7;
         for (freq = 0x2000; freq > 0x1000; freq -= 0x80) {
             LEDS = ~(0x01 << (led_pos & 0x07));
             if (led_pos > 0) led_pos--;
             else led_pos = 7;
-            SID_V1_FREQ_LO = freq & 0xFF;
-            SID_V1_FREQ_HI = (freq >> 8) & 0xFF;
+            sid_freq(0, freq);
             delay_ms(6);
         }
     }
-    SID_V1_CTRL = 0;
+    sid_gate_off(0);
     LEDS = 0xFF;
 }
 
@@ -177,56 +126,46 @@ void fx_powerup(void) {
     uint16_t freq;
     uint8_t led_idx;
     
-    SID_V1_AD = 0x09;
-    SID_V1_SR = 0x00;
-    SID_V1_PW_LO = 0x00;
-    SID_V1_PW_HI = 0x08;
+    sid_adsr(0, ADSR_PLUCK);
+    sid_pulse_width(0, 2048);
     
     led_idx = 0;
     for (freq = 0x0800; freq < 0x4000; freq += 0x0180) {
-        /* LEDs se van encendiendo de abajo a arriba */
         LEDS = ~((1 << (led_idx + 1)) - 1);
         if (led_idx < 7) led_idx++;
-        
-        SID_V1_FREQ_LO = freq & 0xFF;
-        SID_V1_FREQ_HI = (freq >> 8) & 0xFF;
-        SID_V1_CTRL = PULSE | GATE;
+        sid_freq(0, freq);
+        sid_wave(0, SID_PULSE);
+        sid_gate_on(0);
         delay_ms(25);
-        SID_V1_CTRL = PULSE;
+        sid_gate_off(0);
         delay_ms(10);
     }
     
-    /* Flash final */
     LEDS = 0x00; delay_ms(50);
     LEDS = 0xFF; delay_ms(50);
     LEDS = 0x00; delay_ms(50);
     LEDS = 0xFF;
-    SID_V1_CTRL = 0;
+    sid_gate_off(0);
 }
 
 void fx_coin(void) {
-    SID_V1_AD = 0x00;
-    SID_V1_SR = 0x90;
-    SID_V1_PW_LO = 0x00;
-    SID_V1_PW_HI = 0x08;
+    sid_adsr(0, ADSR_PLUCK);
+    sid_pulse_width(0, 2048);
     
-    /* Nota alta + LED flash */
     LEDS = 0x00;
-    SID_V1_FREQ_LO = NOTE_E6 & 0xFF;
-    SID_V1_FREQ_HI = (NOTE_E6 >> 8) & 0xFF;
-    SID_V1_CTRL = PULSE | GATE;
+    sid_freq(0, NOTE_E6);
+    sid_wave(0, SID_PULSE);
+    sid_gate_on(0);
     delay_ms(80);
     
     LEDS = 0xFF;
     delay_ms(20);
     
-    /* Nota más alta + otro flash */
     LEDS = 0x00;
-    SID_V1_FREQ_LO = NOTE_G6 & 0xFF;
-    SID_V1_FREQ_HI = (NOTE_G6 >> 8) & 0xFF;
+    sid_freq(0, NOTE_G6);
     delay_ms(200);
     
-    SID_V1_CTRL = 0;
+    sid_gate_off(0);
     LEDS = 0xFF;
 }
 
@@ -239,8 +178,7 @@ void arpeggio_major(uint16_t root, uint8_t octaves) {
     uint16_t freq;
     uint8_t led_base;
     
-    SID_V1_AD = 0x00;
-    SID_V1_SR = 0xA0;
+    sid_adsr(0, ADSR_FAST);
     
     for (i = 0; i < octaves; i++) {
         freq = root << i;
@@ -248,30 +186,28 @@ void arpeggio_major(uint16_t root, uint8_t octaves) {
         
         /* Raíz */
         LEDS = ~(1 << led_base);
-        SID_V1_FREQ_LO = freq & 0xFF;
-        SID_V1_FREQ_HI = (freq >> 8) & 0xFF;
-        SID_V1_CTRL = SAWTOOTH | GATE;
+        sid_freq(0, freq);
+        sid_wave(0, SID_SAWTOOTH);
+        sid_gate_on(0);
         delay_ms(80);
-        SID_V1_CTRL = SAWTOOTH;
+        sid_gate_off(0);
         
         /* Tercera mayor */
         LEDS = ~(1 << ((led_base + 1) & 0x07));
         freq = (freq * 5) >> 2;
-        SID_V1_FREQ_LO = freq & 0xFF;
-        SID_V1_FREQ_HI = (freq >> 8) & 0xFF;
-        SID_V1_CTRL = SAWTOOTH | GATE;
+        sid_freq(0, freq);
+        sid_gate_on(0);
         delay_ms(80);
-        SID_V1_CTRL = SAWTOOTH;
+        sid_gate_off(0);
         
         /* Quinta */
         LEDS = ~(1 << ((led_base + 2) & 0x07));
         freq = (root << i);
         freq = (freq * 3) >> 1;
-        SID_V1_FREQ_LO = freq & 0xFF;
-        SID_V1_FREQ_HI = (freq >> 8) & 0xFF;
-        SID_V1_CTRL = SAWTOOTH | GATE;
+        sid_freq(0, freq);
+        sid_gate_on(0);
         delay_ms(80);
-        SID_V1_CTRL = SAWTOOTH;
+        sid_gate_off(0);
     }
     LEDS = 0xFF;
 }
@@ -284,28 +220,25 @@ void pwm_sweep(uint16_t freq, uint16_t duration_ms) {
     uint8_t pw;
     uint16_t step_ms;
     
-    SID_V1_FREQ_LO = freq & 0xFF;
-    SID_V1_FREQ_HI = (freq >> 8) & 0xFF;
-    SID_V1_AD = 0x00;
-    SID_V1_SR = 0xF0;
-    SID_V1_CTRL = PULSE | GATE;
+    sid_freq(0, freq);
+    sid_adsr(0, ADSR_SFX);
+    sid_wave(0, SID_PULSE);
+    sid_gate_on(0);
     
     step_ms = duration_ms / 32;
     
-    /* Sweep hacia arriba - LEDs de izq a der */
     for (pw = 1; pw < 15; pw++) {
         LEDS = ~(1 << (pw >> 1));
-        SID_V1_PW_HI = pw;
+        sid_pulse_width(0, pw << 8);
         delay_ms(step_ms);
     }
-    /* Sweep hacia abajo - LEDs de der a izq */
     for (pw = 15; pw > 1; pw--) {
         LEDS = ~(1 << (pw >> 1));
-        SID_V1_PW_HI = pw;
+        sid_pulse_width(0, pw << 8);
         delay_ms(step_ms);
     }
     
-    SID_V1_CTRL = 0;
+    sid_gate_off(0);
     LEDS = 0xFF;
 }
 
@@ -314,57 +247,49 @@ void pwm_sweep(uint16_t freq, uint16_t duration_ms) {
  * ============================================================================ */
 
 void melody_intro(void) {
-    SID_V1_AD = 0x22;
-    SID_V1_SR = 0xA2;
+    sid_adsr(0, ADSR_STRINGS);
     
-    /* Acorde ascendente con LEDs encendiéndose */
-    play_note(NOTE_C4, SAWTOOTH, 150, 0x01);
+    play_note(NOTE_C4, SID_SAWTOOTH, 150, 0x01);
     delay_ms(30);
-    play_note(NOTE_E4, SAWTOOTH, 150, 0x03);
+    play_note(NOTE_E4, SID_SAWTOOTH, 150, 0x03);
     delay_ms(30);
-    play_note(NOTE_G4, SAWTOOTH, 150, 0x07);
+    play_note(NOTE_G4, SID_SAWTOOTH, 150, 0x07);
     delay_ms(30);
-    play_note(NOTE_C5, SAWTOOTH, 400, 0xFF);  /* Todos ON */
+    play_note(NOTE_C5, SID_SAWTOOTH, 400, 0xFF);
     delay_ms(100);
     
-    /* Bajada con LEDs apagándose */
-    play_note(NOTE_B4, SAWTOOTH, 100, 0x0F);
-    play_note(NOTE_A4, SAWTOOTH, 100, 0x07);
-    play_note(NOTE_G4, SAWTOOTH, 100, 0x03);
-    play_note(NOTE_E4, SAWTOOTH, 300, 0x01);
+    play_note(NOTE_B4, SID_SAWTOOTH, 100, 0x0F);
+    play_note(NOTE_A4, SID_SAWTOOTH, 100, 0x07);
+    play_note(NOTE_G4, SID_SAWTOOTH, 100, 0x03);
+    play_note(NOTE_E4, SID_SAWTOOTH, 300, 0x01);
 }
 
 void melody_game(void) {
-    SID_V1_AD = 0x00;
-    SID_V1_SR = 0xA0;
-    SID_V1_PW_LO = 0x00;
-    SID_V1_PW_HI = 0x08;
+    sid_adsr(0, ADSR_FAST);
+    sid_pulse_width(0, 2048);
     
-    /* Tema tipo Mario con LEDs al ritmo */
-    play_note(NOTE_E4, PULSE, 120, 0x81);
-    play_note(NOTE_E4, PULSE, 120, 0x42);
+    play_note(NOTE_E4, SID_PULSE, 120, 0x81);
+    play_note(NOTE_E4, SID_PULSE, 120, 0x42);
     delay_ms(120);
-    play_note(NOTE_E4, PULSE, 120, 0x24);
+    play_note(NOTE_E4, SID_PULSE, 120, 0x24);
     delay_ms(120);
-    play_note(NOTE_C4, PULSE, 120, 0x18);
-    play_note(NOTE_E4, PULSE, 240, 0x3C);
-    play_note(NOTE_G4, PULSE, 360, 0xFF);
+    play_note(NOTE_C4, SID_PULSE, 120, 0x18);
+    play_note(NOTE_E4, SID_PULSE, 240, 0x3C);
+    play_note(NOTE_G4, SID_PULSE, 360, 0xFF);
     delay_ms(240);
-    play_note(NOTE_G3, PULSE, 360, 0x18);
+    play_note(NOTE_G3, SID_PULSE, 360, 0x18);
 }
 
 void melody_victory(void) {
-    SID_V1_AD = 0x11;
-    SID_V1_SR = 0xA1;
+    sid_adsr(0, ADSR_LEAD);
     
-    play_note(NOTE_G4, TRIANGLE, 150, 0x03);
-    play_note(NOTE_C5, TRIANGLE, 150, 0x0F);
-    play_note(NOTE_E5, TRIANGLE, 150, 0x3F);
-    play_note(NOTE_G5, TRIANGLE, 300, 0xFF);
-    play_note(NOTE_E5, TRIANGLE, 150, 0x3F);
-    play_note(NOTE_G5, TRIANGLE, 600, 0xFF);
+    play_note(NOTE_G4, SID_TRIANGLE, 150, 0x03);
+    play_note(NOTE_C5, SID_TRIANGLE, 150, 0x0F);
+    play_note(NOTE_E5, SID_TRIANGLE, 150, 0x3F);
+    play_note(NOTE_G5, SID_TRIANGLE, 300, 0xFF);
+    play_note(NOTE_E5, SID_TRIANGLE, 150, 0x3F);
+    play_note(NOTE_G5, SID_TRIANGLE, 600, 0xFF);
     
-    /* Flash de victoria! */
     LEDS = 0x00; delay_ms(100);
     LEDS = 0xFF; delay_ms(100);
     LEDS = 0x00; delay_ms(100);
@@ -377,19 +302,15 @@ void melody_victory(void) {
  * DEMO 2: POLIFONIA 3 VOCES - SECUENCIA ÉPICA
  * ============================================================================ */
 
-/* Acorde con sweep de filtro simple */
+/* Acorde con sweep de filtro */
 void poly3_filter(uint16_t n1, uint16_t n2, uint16_t n3, uint8_t up) {
     uint8_t fc;
     
-    SID_V1_FREQ_LO = n1 & 0xFF; SID_V1_FREQ_HI = n1 >> 8;
-    SID_V2_FREQ_LO = n2 & 0xFF; SID_V2_FREQ_HI = n2 >> 8;
-    SID_V3_FREQ_LO = n3 & 0xFF; SID_V3_FREQ_HI = n3 >> 8;
-    SID_V1_CTRL = SAWTOOTH | GATE;
-    SID_V2_CTRL = PULSE | GATE;
-    SID_V3_CTRL = SAWTOOTH | GATE;
+    sid_freq(0, n1); sid_freq(1, n2); sid_freq(2, n3);
+    sid_wave(0, SID_SAWTOOTH); sid_wave(1, SID_PULSE); sid_wave(2, SID_SAWTOOTH);
+    sid_gate_on(0); sid_gate_on(1); sid_gate_on(2);
     
-    SID_RES_FILT = 0xF7;
-    SID_MODE_VOL = FILT_LP | 0x0F;
+    sid_filter(0, 15, SID_FILT_V1 | SID_FILT_V2 | SID_FILT_V3, SID_FILT_LP);
     
     if (up) {
         for (fc = 20; fc < 100; fc += 4) {
@@ -405,11 +326,9 @@ void poly3_filter(uint16_t n1, uint16_t n2, uint16_t n3, uint8_t up) {
         }
     }
     
-    SID_V1_CTRL = SAWTOOTH;
-    SID_V2_CTRL = PULSE;
-    SID_V3_CTRL = SAWTOOTH;
-    SID_RES_FILT = 0x00;
-    SID_MODE_VOL = 0x0F;
+    sid_gate_off(0); sid_gate_off(1); sid_gate_off(2);
+    sid_filter_off();
+    sid_volume(15);
     LEDS = 0xFF;
 }
 
@@ -417,38 +336,31 @@ void poly3_filter(uint16_t n1, uint16_t n2, uint16_t n3, uint8_t up) {
 void bass_pulse(uint16_t bass, uint16_t n2, uint16_t n3, uint8_t pulses) {
     uint8_t i;
     
-    SID_V2_FREQ_LO = n2 & 0xFF; SID_V2_FREQ_HI = n2 >> 8;
-    SID_V3_FREQ_LO = n3 & 0xFF; SID_V3_FREQ_HI = n3 >> 8;
-    SID_V2_CTRL = TRIANGLE | GATE;
-    SID_V3_CTRL = PULSE | GATE;
+    sid_freq(1, n2); sid_freq(2, n3);
+    sid_wave(1, SID_TRIANGLE); sid_wave(2, SID_PULSE);
+    sid_gate_on(1); sid_gate_on(2);
     
-    SID_V1_FREQ_LO = bass & 0xFF; SID_V1_FREQ_HI = bass >> 8;
+    sid_freq(0, bass);
+    sid_wave(0, SID_PULSE);
     
     for (i = 0; i < pulses; i++) {
-        SID_V1_CTRL = PULSE | GATE;
+        sid_gate_on(0);
         LEDS = ~(1 << (i % 6));
         delay_ms(80);
-        SID_V1_CTRL = PULSE;
+        sid_gate_off(0);
         delay_ms(80);
     }
     
-    SID_V2_CTRL = TRIANGLE;
-    SID_V3_CTRL = PULSE;
+    sid_gate_off(1); sid_gate_off(2);
     LEDS = 0xFF;
 }
 
 void poly3(uint16_t n1, uint16_t n2, uint16_t n3, uint16_t dur, uint8_t led) {
     LEDS = ~led;
-    SID_V1_FREQ_LO = n1 & 0xFF; SID_V1_FREQ_HI = n1 >> 8;
-    SID_V2_FREQ_LO = n2 & 0xFF; SID_V2_FREQ_HI = n2 >> 8;
-    SID_V3_FREQ_LO = n3 & 0xFF; SID_V3_FREQ_HI = n3 >> 8;
-    SID_V1_CTRL = TRIANGLE | GATE;
-    SID_V2_CTRL = PULSE | GATE;
-    SID_V3_CTRL = SAWTOOTH | GATE;
+    sid_freq(0, n1); sid_freq(1, n2); sid_freq(2, n3);
+    sid_chord(n1, n2, n3);
     delay_ms(dur);
-    SID_V1_CTRL = TRIANGLE;
-    SID_V2_CTRL = PULSE;
-    SID_V3_CTRL = SAWTOOTH;
+    sid_chord_off();
     LEDS = 0xFF;
 }
 
@@ -456,122 +368,112 @@ void poly3(uint16_t n1, uint16_t n2, uint16_t n3, uint16_t dur, uint8_t led) {
  * FUNCIONES DE BATERÍA (usando voz 3 con NOISE)
  * ============================================================================ */
 
-/* Kick drum - frecuencia baja */
+/* Kick drum */
 void drum_kick(void) {
-    SID_V3_FREQ_HI = 0x08;
-    SID_V3_AD = 0x00;
-    SID_V3_SR = 0x00;
-    SID_V3_CTRL = NOISE | GATE;
+    sid_freq(2, 0x0800);
+    sid_adsr(2, ADSR_DRUM);
+    sid_wave(2, SID_NOISE);
+    sid_gate_on(2);
     LEDS = ~0x01;
     delay_ms(50);
-    SID_V3_CTRL = NOISE;
+    sid_gate_off(2);
 }
 
 /* Snare drum */
 void drum_snare(void) {
-    SID_V3_FREQ_HI = 0x28;
-    SID_V3_AD = 0x00;
-    SID_V3_SR = 0x00;
-    SID_V3_CTRL = NOISE | GATE;
+    sid_freq(2, 0x2800);
+    sid_adsr(2, ADSR_SNARE);
+    sid_wave(2, SID_NOISE);
+    sid_gate_on(2);
     LEDS = ~0x08;
     delay_ms(60);
-    SID_V3_CTRL = NOISE;
+    sid_gate_off(2);
 }
 
 /* Hi-hat */
 void drum_hh(void) {
-    SID_V3_FREQ_HI = 0x80;
-    SID_V3_CTRL = NOISE | GATE;
+    sid_freq(2, 0x8000);
+    sid_adsr(2, ADSR_DRUM);
+    sid_wave(2, SID_NOISE);
+    sid_gate_on(2);
     LEDS = ~0x20;
     delay_ms(25);
-    SID_V3_CTRL = NOISE;
+    sid_gate_off(2);
 }
 
 /* Batería con bajo y acorde */
 void groove_bar(uint16_t bass, uint16_t chord, uint8_t bars) {
     uint8_t i;
     
-    SID_V1_AD = 0x08;
-    SID_V1_SR = 0x80;
-    SID_V1_PW_HI = 0x04;
-    SID_V1_FREQ_LO = bass & 0xFF;
-    SID_V1_FREQ_HI = bass >> 8;
+    sid_adsr(0, ADSR_BASS);
+    sid_pulse_width(0, 1024);
+    sid_freq(0, bass);
     
-    SID_V2_AD = 0x22;
-    SID_V2_SR = 0xF2;
-    SID_V2_PW_HI = 0x08;
-    SID_V2_FREQ_LO = chord & 0xFF;
-    SID_V2_FREQ_HI = chord >> 8;
-    SID_V2_CTRL = PULSE | GATE;
+    sid_adsr(1, ADSR_PAD);
+    sid_pulse_width(1, 2048);
+    sid_freq(1, chord);
+    sid_wave(1, SID_PULSE);
+    sid_gate_on(1);
     
     for (i = 0; i < bars; i++) {
-        SID_V1_CTRL = PULSE | GATE;
+        sid_wave(0, SID_PULSE);
+        sid_gate_on(0);
         drum_kick();
         delay_ms(70);
-        SID_V1_CTRL = PULSE;
+        sid_gate_off(0);
         
         drum_hh();
         delay_ms(95);
         
-        SID_V1_CTRL = PULSE | GATE;
+        sid_gate_on(0);
         drum_snare();
         delay_ms(60);
-        SID_V1_CTRL = PULSE;
+        sid_gate_off(0);
         
         drum_hh();
         delay_ms(95);
     }
     
-    SID_V2_CTRL = PULSE;
+    sid_gate_off(1);
     LEDS = 0xFF;
 }
 
 void run_demo_polyphonic(void) {
     
-    sid_clear();
-    SID_MODE_VOL = 0x0F;
+    sid_init();
+    sid_volume(15);
     
-    /* Configurar Voz 1 - Bajo */
-    SID_V1_AD = 0x09;  /* Attack medio, decay rápido */
-    SID_V1_SR = 0xA0;
-    SID_V1_PW_LO = 0x00;
-    SID_V1_PW_HI = 0x04;  /* Pulse estrecho */
+    /* Configurar voces */
+    sid_voice(0, 0, SID_PULSE, ADSR_BASS);
+    sid_pulse_width(0, 1024);
     
-    /* Configurar Voz 2 - Pad */
-    SID_V2_AD = 0x33;  /* Attack lento */
-    SID_V2_SR = 0xF3;
-    SID_V2_PW_LO = 0x00;
-    SID_V2_PW_HI = 0x08;
+    sid_voice(1, 0, SID_PULSE, ADSR_PAD);
+    sid_pulse_width(1, 2048);
     
-    /* Configurar Voz 3 - Lead */
-    SID_V3_AD = 0x00;
-    SID_V3_SR = 0xF0;
+    sid_voice(2, 0, SID_SAWTOOTH, ADSR_LEAD);
     
     uart_puts("\r\n[POLY]\r\n");
     
     /* === SECCIÓN 1: Acordes con sweep de filtro === */
-    /* Am - F - C - G (progresión épica) */
-    poly3_filter(NOTE_A3, NOTE_C4, NOTE_E4, 1);  /* Am - sweep up */
+    poly3_filter(NOTE_A3, NOTE_C4, NOTE_E4, 1);
     delay_ms(100);
-    poly3_filter(NOTE_F3, NOTE_A3, NOTE_C4, 0);  /* F - sweep down */
+    poly3_filter(NOTE_F3, NOTE_A3, NOTE_C4, 0);
     delay_ms(100);
-    poly3_filter(NOTE_C3, NOTE_E3, NOTE_G3, 1);  /* C - sweep up */
+    poly3_filter(NOTE_C3, NOTE_E3, NOTE_G3, 1);
     delay_ms(100);
-    poly3_filter(NOTE_G3, NOTE_B3, NOTE_D4, 0);  /* G - sweep down */
+    poly3_filter(NOTE_G3, NOTE_B3, NOTE_D4, 0);
     delay_ms(200);
     
     /* === SECCIÓN 2: Bajo pulsante con acordes suspendidos === */
-    SID_V1_AD = 0x00;
-    SID_V1_SR = 0xC0;
+    sid_adsr(0, ADSR_BASS);
     bass_pulse(NOTE_A2, NOTE_E4, NOTE_A4, 4);  /* Am */
     bass_pulse(NOTE_F2, NOTE_C4, NOTE_F4, 4);  /* F */
     
     /* === SECCIÓN 3: GROOVE CON BATERÍA === */
     uart_puts("[DRUMS]\r\n");
-    sid_clear();
-    SID_MODE_VOL = 0x0F;
+    sid_init();
+    sid_volume(15);
     
-    /* 4 compases con batería: Am - F - C - G */
     groove_bar(NOTE_A2, NOTE_E4, 2);
     groove_bar(NOTE_F2, NOTE_C4, 2);
     groove_bar(NOTE_C2, NOTE_G3, 2);
@@ -588,20 +490,16 @@ void run_demo_polyphonic(void) {
     delay_ms(200);
     
     /* === FINAL: Acorde mayor resolutivo === */
-    sid_clear();
-    SID_MODE_VOL = 0x0F;
-    SID_V1_AD = 0x44;
-    SID_V1_SR = 0xF4;
-    SID_V2_AD = 0x44;
-    SID_V2_SR = 0xF4;
-    SID_V3_AD = 0x44;
-    SID_V3_SR = 0xF4;
-    SID_V2_PW_LO = 0x00;
-    SID_V2_PW_HI = 0x08;
+    sid_init();
+    sid_volume(15);
+    sid_voice(0, 0, SID_TRIANGLE, ADSR_STRINGS);
+    sid_voice(1, 0, SID_PULSE, ADSR_STRINGS);
+    sid_voice(2, 0, SID_SAWTOOTH, ADSR_STRINGS);
+    sid_pulse_width(1, 2048);
     
-    LEDS = 0x00;  /* Todos los LEDs ON */
+    LEDS = 0x00;
     poly3(NOTE_A3, NOTE_C4, NOTE_E4, 400, 0x00);
-    poly3(NOTE_A3, NOTE_CS4, NOTE_E4, 800, 0x00);  /* Am -> A mayor! */
+    poly3(NOTE_A3, NOTE_CS4, NOTE_E4, 800, 0x00);
     LEDS = 0xFF;
     delay_ms(300);
 }
@@ -613,16 +511,13 @@ void run_demo_polyphonic(void) {
 void filter_sweep(void) {
     uint8_t fc;
     
-    SID_V1_FREQ_LO = NOTE_A3 & 0xFF;
-    SID_V1_FREQ_HI = (NOTE_A3 >> 8) & 0xFF;
-    SID_V1_AD = 0x00;
-    SID_V1_SR = 0xF0;
-    SID_V1_CTRL = SAWTOOTH | GATE;
+    sid_freq(0, NOTE_A3);
+    sid_adsr(0, ADSR_SFX);
+    sid_wave(0, SID_SAWTOOTH);
+    sid_gate_on(0);
     
-    SID_RES_FILT = 0xF1;
-    SID_MODE_VOL = FILT_LP | 0x0F;
+    sid_filter(0, 15, SID_FILT_V1, SID_FILT_LP);
     
-    /* Sweep del filtro con LEDs siguiendo */
     for (fc = 10; fc < 120; fc += 2) {
         LEDS = ~(1 << ((fc >> 4) & 0x07));
         SID_FC_HI = fc;
@@ -634,9 +529,9 @@ void filter_sweep(void) {
         delay_ms(15);
     }
     
-    SID_V1_CTRL = 0;
-    SID_RES_FILT = 0x00;
-    SID_MODE_VOL = 0x0F;
+    sid_gate_off(0);
+    sid_filter_off();
+    sid_volume(15);
     LEDS = 0xFF;
 }
 
@@ -645,27 +540,25 @@ void filter_sweep(void) {
  * ============================================================================ */
 
 void scale_c_major(void) {
-    SID_V1_AD = 0x00;
-    SID_V1_SR = 0xB0;
+    sid_adsr(0, ADSR_LEAD);
     
-    /* C4 - C5 con LED diferente para cada nota */
-    play_note(NOTE_C4, SAWTOOTH, 200, 0x01);
-    play_note(NOTE_D4, SAWTOOTH, 200, 0x02);
-    play_note(NOTE_E4, SAWTOOTH, 200, 0x04);
-    play_note(NOTE_F4, SAWTOOTH, 200, 0x08);
-    play_note(NOTE_G4, SAWTOOTH, 200, 0x10);
-    play_note(NOTE_A4, SAWTOOTH, 200, 0x20);
-    play_note(NOTE_B4, SAWTOOTH, 200, 0x40);
-    play_note(NOTE_C5, SAWTOOTH, 400, 0x80);
+    play_note(NOTE_C4, SID_SAWTOOTH, 200, 0x01);
+    play_note(NOTE_D4, SID_SAWTOOTH, 200, 0x02);
+    play_note(NOTE_E4, SID_SAWTOOTH, 200, 0x04);
+    play_note(NOTE_F4, SID_SAWTOOTH, 200, 0x08);
+    play_note(NOTE_G4, SID_SAWTOOTH, 200, 0x10);
+    play_note(NOTE_A4, SID_SAWTOOTH, 200, 0x20);
+    play_note(NOTE_B4, SID_SAWTOOTH, 200, 0x40);
+    play_note(NOTE_C5, SID_SAWTOOTH, 400, 0x80);
     
     /* Bajar */
-    play_note(NOTE_B4, SAWTOOTH, 200, 0x40);
-    play_note(NOTE_A4, SAWTOOTH, 200, 0x20);
-    play_note(NOTE_G4, SAWTOOTH, 200, 0x10);
-    play_note(NOTE_F4, SAWTOOTH, 200, 0x08);
-    play_note(NOTE_E4, SAWTOOTH, 200, 0x04);
-    play_note(NOTE_D4, SAWTOOTH, 200, 0x02);
-    play_note(NOTE_C4, SAWTOOTH, 400, 0x01);
+    play_note(NOTE_B4, SID_SAWTOOTH, 200, 0x40);
+    play_note(NOTE_A4, SID_SAWTOOTH, 200, 0x20);
+    play_note(NOTE_G4, SID_SAWTOOTH, 200, 0x10);
+    play_note(NOTE_F4, SID_SAWTOOTH, 200, 0x08);
+    play_note(NOTE_E4, SID_SAWTOOTH, 200, 0x04);
+    play_note(NOTE_D4, SID_SAWTOOTH, 200, 0x02);
+    play_note(NOTE_C4, SID_SAWTOOTH, 400, 0x01);
 }
 
 /* ============================================================================
@@ -673,8 +566,8 @@ void scale_c_major(void) {
  * ============================================================================ */
 
 void run_demo(void) {
-    sid_clear();
-    SID_MODE_VOL = 0x0F;
+    sid_init();
+    sid_volume(15);
     
     uart_puts("\r\n[DEMO 1]\r\n");
     
