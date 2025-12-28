@@ -1,45 +1,50 @@
-# 6502 SID Project - Tang Nano 9K
+# 🎵 SID 6581 Demo - Tang Nano 9K + 6502
 
-🚀 **Proyecto 6502 con chip de sonido SID 6581** sobre FPGA Tang Nano 9K.
+🚀 **Demo musical del legendario chip SID 6581** del Commodore 64, implementado en FPGA Tang Nano 9K con CPU 6502.
 
-Sistema embebido retro con CPU 6502 y el legendario chip de sonido del Commodore 64.
+Demo espectacular con efectos de sonido y LEDs sincronizados al ritmo de la música.
 
-## Características
+## 🎬 Características del Demo
+
+- 🎵 **Efectos de sonido**: Láser, sirenas, explosiones, arpeggios
+- 🎹 **Melodías**: Escalas, acordes, secuencias musicales
+- 💡 **LEDs sincronizados** al ritmo del sonido
+- 🔄 **Loop infinito** con transiciones suaves
+
+## Hardware
 
 - ✅ CPU 6502 @ 3.375 MHz en FPGA Tang Nano 9K
 - ✅ **Chip de sonido SID 6581** (3 voces, filtros, ADSR)
-- ✅ Control de 6 LEDs 
+- ✅ Control de 6 LEDs sincronizados
 - ✅ Comunicación UART para debug
-- ✅ Timer de precisión con microsegundos
-- ✅ Interfaz I2C Master
-- ✅ Compilación con cc65
-- ✅ **Compatible con librerías estándar de cc65** (stdlib, string, etc.)
-- ✅ Startup con copydata y zerobss
-- ✅ Librerías en C listas para usar
+- ✅ Timer de precisión
 
-## Hardware Soportado
+## Mapa de Hardware
 
 | Componente | Dirección | Descripción |
 |------------|-----------|-------------|
-| PORT_1 | $C000 | Puerto GPIO 1 (8 bits bidireccional) |
-| PORT_2 / LEDs | $C001 | Puerto GPIO 2 / LEDs (6 bits) |
-| CONF_PORT_1 | $C002 | Configuración Puerto 1 (0=salida, 1=entrada) |
-| CONF_PORT_2 | $C003 | Configuración Puerto 2 (0=salida, 1=entrada) |
-| I2C | $C010-$C014 | Interfaz I2C Master |
-| UART | $C020-$C023 | Comunicación serial 115200 baud |
-| Timer | $C030-$C03C | Timer de precisión / RTC |
-| **SID 6581** | $D400-$D41F | Chip de sonido (compatible C64) |
+| LEDs | $C001 | 6 LEDs (activo bajo) |
+| CONF_PORT | $C003 | Configuración puerto LEDs |
+| UART | $C020-$C021 | Comunicación serial 115200 baud |
+| Timer | $C030-$C03C | Timer de precisión |
+| **SID 6581** | $D400-$D41C | Chip de sonido (compatible C64) |
 
 ## Estructura del Proyecto
 
 ```
 ├── src/
-│   ├── main.c              # Programa principal (edita aquí)
+│   ├── main.c              # Demo principal (efectos + melodías)
 │   ├── startup.s           # Inicialización del sistema
 │   └── simple_vectors.s    # Vectores de interrupción 6502
-├── libs/                   # Librerías
-│   ├── uart/               # Comunicación serial
-│   └── sid/                # Chip de sonido SID 6581
+├── libs/                   # Librerías (clonar por separado)
+│   ├── uart-6502-cc65/     # UART optimizado en ASM
+│   ├── timer-6502-cc65/    # Timer de precisión
+│   └── sid/                # Librería SID 6581
+├── vhdl/                   # Código VHDL para FPGA
+│   ├── Board.vhd           # Top-level del sistema
+│   ├── sid_wrapper.vhd     # Wrapper del SID
+│   ├── uart_wrapper.vhd    # Wrapper UART
+│   └── NetSID/             # Implementación SID 6581
 ├── config/
 │   └── fpga.cfg            # Configuración del linker cc65
 ├── scripts/
@@ -51,7 +56,7 @@ Sistema embebido retro con CPU 6502 y el legendario chip de sonido del Commodore
 
 ## 🎵 Chip de Sonido SID 6581
 
-El SID está mapeado en `$D400-$D41F`, compatible con el Commodore 64.
+El SID está mapeado en `$D400-$D41C`, compatible con el Commodore 64.
 
 ### Características
 - **3 voces** independientes
@@ -63,52 +68,66 @@ El SID está mapeado en `$D400-$D41F`, compatible con el Commodore 64.
 ### Ejemplo de Uso
 
 ```c
-#include "../libs/sid/sid.h"
+#include <stdint.h>
+#include "timer.h"
+#include "uart.h"
+#include "sid.h"
 
 int main(void) {
     sid_init();
-    sid_set_volume(15);
+    SID_MODE_VOL = 0x0F;  /* Volumen máximo */
     
-    /* Configurar voz 1: onda de pulso */
-    sid_set_waveform(0, SID_PULSE);
-    sid_set_pulse_width(0, 2048);
-    sid_set_adsr(0, 0, 9, 0, 0);
+    /* Configurar ADSR */
+    SID_V1_AD = 0x00;     /* Attack=0, Decay=0 */
+    SID_V1_SR = 0xF0;     /* Sustain=15, Release=0 */
     
-    /* Tocar nota A4 (440 Hz) */
-    sid_play_note(0, NOTE_A4);
+    /* Tocar nota A4 (440 Hz) con onda de pulso */
+    SID_V1_PW_LO = 0x00;
+    SID_V1_PW_HI = 0x08;  /* Pulse width 50% */
+    SID_V1_FREQ_LO = NOTE_A4 & 0xFF;
+    SID_V1_FREQ_HI = NOTE_A4 >> 8;
+    SID_V1_CTRL = SID_PULSE | SID_GATE;
     
+    delay_ms(500);
+    
+    SID_V1_CTRL = SID_PULSE;  /* Gate off */
+    
+    while(1);
     return 0;
 }
 ```
 
-Ver [libs/sid/README.md](libs/sid/README.md) para documentación completa.
+## 🚀 Instalación
 
-## Cómo Usar
+### 1. Clonar el repositorio
+```bash
+git clone https://github.com/nelsama/test_SID_6502_TN-9k.git
+cd test_SID_6502_TN-9k
+```
 
-1. **Clona o descarga** este repositorio
-2. **Edita** `src/main.c` con tu código
-3. **Agrega librerías** en la carpeta `libs/` según necesites
-4. **Compila** con `make`
-5. **Carga** `output/rom.vhd` en tu proyecto FPGA
+### 2. Clonar las librerías necesarias
+```bash
+cd libs
+git clone https://github.com/nelsama/uart-6502-cc65.git
+git clone https://github.com/nelsama/timer-6502-cc65.git
+git clone https://github.com/nelsama/sid-6502-cc65.git sid
+cd ..
+```
 
-## Compilación
-
-### Requisitos previos
-- [cc65](https://cc65.github.io/) instalado en `D:\cc65`
-- Python 3 para el script de conversión
-
-### Compilar
+### 3. Compilar
 ```bash
 make
 ```
 
-### Limpiar
-```bash
-make clean
-```
+### 4. Cargar en FPGA
+Copiar `output/rom.vhd` al proyecto FPGA y sintetizar con Gowin IDE.
 
-### Cargar en FPGA
-Copiar `output/rom.vhd` al proyecto FPGA y sintetizar.
+## Requisitos
+
+- [cc65](https://cc65.github.io/) - Compilador C para 6502
+- Python 3 - Para el script bin2rom3.py
+- FPGA Tang Nano 9K
+- Gowin IDE para síntesis FPGA
 
 ## Uso de Librerías cc65
 
@@ -140,13 +159,12 @@ int main(void) {
 | RAM | $0200-$3FFF | 16 KB | RAM principal + DATA + Stack |
 | ROM | $8000-$9FFF | 8 KB | Código del programa |
 | Vectores | $9FFA-$9FFF | 6 bytes | NMI, RESET, IRQ |
-| GPIO | $C000-$C003 | 4 bytes | Puertos de E/S |
-| I2C | $C010-$C014 | 5 bytes | Interfaz I2C Master |
-| UART | $C020-$C023 | 4 bytes | Comunicación serial |
+| GPIO/LEDs | $C000-$C003 | 4 bytes | Puertos de E/S |
+| UART | $C020-$C021 | 2 bytes | Comunicación serial |
 | Timer | $C030-$C03C | 13 bytes | Timer de precisión |
-| **SID** | $D400-$D41F | 32 bytes | Chip de sonido |
+| **SID** | $D400-$D41C | 29 bytes | Chip de sonido |
 
-## Salida de Audio
+## 🔊 Salida de Audio
 
 **Pin:** 33 (PWM)
 
@@ -157,19 +175,17 @@ Pin 33 ──[10kΩ]──┬──[100nF]── GND
                  └── Amplificador/Altavoz
 ```
 
-## Archivos del Sistema
+## 📊 Uso de ROM
 
-| Archivo | Descripción |
-|---------|-------------|
-| `startup.s` | Inicializa stack, copydata, zerobss y llama a main |
-| `simple_vectors.s` | Define vectores NMI, RESET, IRQ |
-| `fpga.cfg` | Mapa de memoria para el linker |
-
-## Requisitos
-
-- [cc65](https://cc65.github.io/) - Compilador C para 6502
-- Python 3 - Para el script bin2rom3.py
-- FPGA Tang Nano 9K
+| Módulo | Tamaño |
+|--------|--------|
+| main.c (demo) | ~4.2 KB |
+| timer | ~626 bytes |
+| sid | ~465 bytes |
+| uart | ~105 bytes |
+| startup | ~139 bytes |
+| cc65 runtime | ~835 bytes |
+| **Total** | **~6.4 KB / 8 KB (79%)** |
 
 ## Licencia
 
