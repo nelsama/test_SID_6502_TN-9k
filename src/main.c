@@ -44,6 +44,7 @@ void fx_laser(void) {
     uint16_t freq;
     uint8_t led_shift;
     
+    uart_puts("  Laser\r\n");
     sid_adsr(0, ADSR_SFX);
     
     led_shift = 0;
@@ -63,6 +64,7 @@ void fx_explosion(void) {
     uint8_t vol;
     uint16_t freq;
     
+    uart_puts("  Explosion\r\n");
     sid_adsr(0, ADSR_SFX);
     sid_volume(15);
     LEDS = 0x00;
@@ -98,6 +100,7 @@ void fx_siren(uint8_t cycles) {
     uint16_t freq;
     uint8_t led_pos;
     
+    uart_puts("  Siren\r\n");
     sid_adsr(0, ADSR_SFX);
     sid_wave(0, SID_TRIANGLE);
     sid_gate_on(0);
@@ -127,6 +130,7 @@ void fx_powerup(void) {
     uint16_t freq;
     uint8_t led_idx;
     
+    uart_puts("  PowerUp\r\n");
     sid_adsr(0, ADSR_PLUCK);
     sid_pulse_width(0, 2048);
     
@@ -150,6 +154,7 @@ void fx_powerup(void) {
 }
 
 void fx_coin(void) {
+    uart_puts("  Coin\r\n");
     sid_adsr(0, ADSR_PLUCK);
     sid_pulse_width(0, 2048);
     
@@ -179,6 +184,7 @@ void arpeggio_major(uint16_t root, uint8_t octaves) {
     uint16_t freq;
     uint8_t led_base;
     
+    uart_puts("  Arpeggio\r\n");
     sid_adsr(0, ADSR_FAST);
     
     for (i = 0; i < octaves; i++) {
@@ -221,6 +227,7 @@ void pwm_sweep(uint16_t freq, uint16_t duration_ms) {
     uint8_t pw;
     uint16_t step_ms;
     
+    uart_puts("  PWM Sweep\r\n");
     sid_freq(0, freq);
     sid_adsr(0, ADSR_SFX);
     sid_wave(0, SID_PULSE);
@@ -248,6 +255,7 @@ void pwm_sweep(uint16_t freq, uint16_t duration_ms) {
  * ============================================================================ */
 
 void melody_intro(void) {
+    uart_puts("  Melody Intro\r\n");
     sid_adsr(0, ADSR_STRINGS);
     
     play_note(NOTE_C4, SID_SAWTOOTH, 150, 0x01);
@@ -266,6 +274,7 @@ void melody_intro(void) {
 }
 
 void melody_game(void) {
+    uart_puts("  Melody Game\r\n");
     sid_adsr(0, ADSR_FAST);
     sid_pulse_width(0, 2048);
     
@@ -282,6 +291,7 @@ void melody_game(void) {
 }
 
 void melody_victory(void) {
+    uart_puts("  Victory!\r\n");
     sid_adsr(0, ADSR_LEAD);
     
     play_note(NOTE_G4, SID_TRIANGLE, 150, 0x03);
@@ -300,209 +310,222 @@ void melody_victory(void) {
 }
 
 /* ============================================================================
- * DEMO 2: POLIFONIA 3 VOCES - SECUENCIA ÉPICA
+ * SUPER MARIO BROS THEME - 3 VOCES
+ * Voz 0: Bajo
+ * Voz 1: Melodía
+ * Voz 2: Percusión
  * ============================================================================ */
 
-/* Acorde con sweep de filtro */
-void poly3_filter(uint16_t n1, uint16_t n2, uint16_t n3, uint8_t up) {
-    uint8_t fc;
-    
-    sid_freq(0, n1); sid_freq(1, n2); sid_freq(2, n3);
-    sid_wave(0, SID_SAWTOOTH); sid_wave(1, SID_PULSE); sid_wave(2, SID_SAWTOOTH);
-    sid_gate_on(0); sid_gate_on(1); sid_gate_on(2);
-    
-    sid_filter(0, 15, SID_FILT_V1 | SID_FILT_V2 | SID_FILT_V3, SID_FILT_LP);
-    
-    if (up) {
-        for (fc = 20; fc < 100; fc += 4) {
-            SID_FC_HI = fc;
-            LEDS = ~(0x3F >> (fc >> 5));
-            delay_ms(12);
-        }
+/* Nota de melodía SIN delay */
+void mario_note(uint16_t freq) {
+    if (freq == 0) {
+        sid_gate_off(1);
     } else {
-        for (fc = 100; fc > 20; fc -= 4) {
-            SID_FC_HI = fc;
-            LEDS = ~(0x3F >> (fc >> 5));
-            delay_ms(12);
-        }
+        sid_freq(1, freq);
+        sid_gate_on(1);
     }
-    
-    sid_gate_off(0); sid_gate_off(1); sid_gate_off(2);
-    sid_filter_off();
-    sid_volume(15);
-    LEDS = 0xFF;
 }
 
-/* Bajo pulsante mientras suena acorde */
-void bass_pulse(uint16_t bass, uint16_t n2, uint16_t n3, uint8_t pulses) {
-    uint8_t i;
-    
-    sid_freq(1, n2); sid_freq(2, n3);
-    sid_wave(1, SID_TRIANGLE); sid_wave(2, SID_PULSE);
-    sid_gate_on(1); sid_gate_on(2);
-    
-    sid_freq(0, bass);
-    sid_wave(0, SID_PULSE);
-    
-    for (i = 0; i < pulses; i++) {
-        sid_gate_on(0);
-        LEDS = ~(1 << (i % 6));
-        delay_ms(80);
-        sid_gate_off(0);
-        delay_ms(80);
+/* Beat de batería SIN delay */
+void mario_beat(uint8_t type) {
+    if (type == 0) {
+        /* Kick */
+        sid_freq(2, 0x0600);
+    } else {
+        /* Hi-hat */
+        sid_freq(2, 0x4000);
     }
-    
-    sid_gate_off(1); sid_gate_off(2);
-    LEDS = 0xFF;
-}
-
-void poly3(uint16_t n1, uint16_t n2, uint16_t n3, uint16_t dur, uint8_t led) {
-    LEDS = ~led;
-    sid_freq(0, n1); sid_freq(1, n2); sid_freq(2, n3);
-    sid_chord(n1, n2, n3);
-    delay_ms(dur);
-    sid_chord_off();
-    LEDS = 0xFF;
-}
-
-/* ============================================================================
- * FUNCIONES DE BATERÍA (usando voz 3 con NOISE)
- * ============================================================================ */
-
-/* Kick drum */
-void drum_kick(void) {
-    sid_freq(2, 0x0800);
-    sid_adsr(2, ADSR_DRUM);
     sid_wave(2, SID_NOISE);
     sid_gate_on(2);
-    LEDS = ~0x01;
-    delay_ms(50);
-    sid_gate_off(2);
 }
 
-/* Snare drum */
-void drum_snare(void) {
-    sid_freq(2, 0x2800);
-    sid_adsr(2, ADSR_SNARE);
-    sid_wave(2, SID_NOISE);
-    sid_gate_on(2);
-    LEDS = ~0x08;
-    delay_ms(60);
-    sid_gate_off(2);
-}
-
-/* Hi-hat */
-void drum_hh(void) {
-    sid_freq(2, 0x8000);
-    sid_adsr(2, ADSR_DRUM);
-    sid_wave(2, SID_NOISE);
-    sid_gate_on(2);
-    LEDS = ~0x20;
-    delay_ms(25);
-    sid_gate_off(2);
-}
-
-/* Batería con bajo y acorde */
-void groove_bar(uint16_t bass, uint16_t chord, uint8_t bars) {
-    uint8_t i;
-    
-    sid_adsr(0, ADSR_BASS);
-    sid_pulse_width(0, 1024);
-    sid_freq(0, bass);
-    
-    sid_adsr(1, ADSR_PAD);
-    sid_pulse_width(1, 2048);
-    sid_freq(1, chord);
-    sid_wave(1, SID_PULSE);
-    sid_gate_on(1);
-    
-    for (i = 0; i < bars; i++) {
-        sid_wave(0, SID_PULSE);
-        sid_gate_on(0);
-        drum_kick();
-        delay_ms(70);
+/* Bajo SIN delay */
+void mario_bass(uint16_t freq) {
+    if (freq == 0) {
         sid_gate_off(0);
-        
-        drum_hh();
-        delay_ms(95);
-        
+    } else {
+        sid_freq(0, freq);
         sid_gate_on(0);
-        drum_snare();
-        delay_ms(60);
-        sid_gate_off(0);
-        
-        drum_hh();
-        delay_ms(95);
     }
-    
-    sid_gate_off(1);
-    LEDS = 0xFF;
 }
 
-void run_demo_polyphonic(void) {
-    
+/* Tempo: duración de un beat en ms */
+#define TEMPO 125
+
+/* Intro de Mario - SINCRONIZADO */
+void mario_intro(void) {
     sid_init();
     sid_volume(15);
     
     /* Configurar voces */
-    sid_voice(0, 0, SID_PULSE, ADSR_BASS);
+    sid_adsr(0, ADSR_BASS);
+    sid_wave(0, SID_PULSE);
     sid_pulse_width(0, 1024);
     
-    sid_voice(1, 0, SID_PULSE, ADSR_PAD);
+    sid_adsr(1, ADSR_FAST);
+    sid_wave(1, SID_PULSE);
     sid_pulse_width(1, 2048);
     
-    sid_voice(2, 0, SID_SAWTOOTH, ADSR_LEAD);
+    sid_adsr(2, ADSR_DRUM);
     
-    uart_puts("\r\n[POLY]\r\n");
+    uart_puts("\r\n[MARIO BROS]\r\n");
     
-    /* === SECCIÓN 1: Acordes con sweep de filtro === */
-    poly3_filter(NOTE_A3, NOTE_C4, NOTE_E4, 1);
-    delay_ms(100);
-    poly3_filter(NOTE_F3, NOTE_A3, NOTE_C4, 0);
-    delay_ms(100);
-    poly3_filter(NOTE_C3, NOTE_E3, NOTE_G3, 1);
-    delay_ms(100);
-    poly3_filter(NOTE_G3, NOTE_B3, NOTE_D4, 0);
-    delay_ms(200);
+    /* ===== Compás 1: E E _ E ===== */
+    /* Beat 1: E */
+    mario_bass(NOTE_E2); mario_beat(0); mario_note(NOTE_E5);
+    delay_ms(TEMPO);
+    sid_gate_off(1); sid_gate_off(2);
     
-    /* === SECCIÓN 2: Bajo pulsante con acordes suspendidos === */
-    sid_adsr(0, ADSR_BASS);
-    bass_pulse(NOTE_A2, NOTE_E4, NOTE_A4, 4);  /* Am */
-    bass_pulse(NOTE_F2, NOTE_C4, NOTE_F4, 4);  /* F */
+    /* Beat 2: E */
+    mario_beat(1); mario_note(NOTE_E5);
+    delay_ms(TEMPO);
+    sid_gate_off(1); sid_gate_off(2);
     
-    /* === SECCIÓN 3: GROOVE CON BATERÍA === */
-    uart_puts("[DRUMS]\r\n");
-    sid_init();
-    sid_volume(15);
+    /* Beat 3: silencio */
+    mario_beat(0);
+    delay_ms(TEMPO);
+    sid_gate_off(2);
     
-    groove_bar(NOTE_A2, NOTE_E4, 2);
-    groove_bar(NOTE_F2, NOTE_C4, 2);
-    groove_bar(NOTE_C2, NOTE_G3, 2);
-    groove_bar(NOTE_G2, NOTE_D4, 2);
+    /* Beat 4: E */
+    mario_beat(1); mario_note(NOTE_E5);
+    delay_ms(TEMPO);
+    sid_gate_off(1); sid_gate_off(2);
     
-    /* Fill final */
-    drum_kick();
-    delay_ms(80);
-    drum_snare();
-    delay_ms(80);
-    drum_kick();
-    delay_ms(80);
-    drum_snare();
-    delay_ms(200);
+    /* ===== Compás 2: _ C E _ ===== */
+    /* Beat 1: silencio */
+    mario_bass(NOTE_C2); mario_beat(0);
+    delay_ms(TEMPO);
+    sid_gate_off(2);
     
-    /* === FINAL: Acorde mayor resolutivo === */
-    sid_init();
-    sid_volume(15);
-    sid_voice(0, 0, SID_TRIANGLE, ADSR_STRINGS);
-    sid_voice(1, 0, SID_PULSE, ADSR_STRINGS);
-    sid_voice(2, 0, SID_SAWTOOTH, ADSR_STRINGS);
-    sid_pulse_width(1, 2048);
+    /* Beat 2: C */
+    mario_beat(1); mario_note(NOTE_C5);
+    delay_ms(TEMPO);
+    sid_gate_off(1); sid_gate_off(2);
     
-    LEDS = 0x00;
-    poly3(NOTE_A3, NOTE_C4, NOTE_E4, 400, 0x00);
-    poly3(NOTE_A3, NOTE_CS4, NOTE_E4, 800, 0x00);
+    /* Beat 3: E */
+    mario_beat(0); mario_note(NOTE_E5);
+    delay_ms(TEMPO);
+    sid_gate_off(1); sid_gate_off(2);
+    
+    /* Beat 4: silencio */
+    mario_beat(1);
+    delay_ms(TEMPO);
+    sid_gate_off(2);
+    
+    /* ===== Compás 3: G _ _ _ ===== */
+    mario_bass(NOTE_G2); mario_beat(0); mario_note(NOTE_G5);
+    delay_ms(TEMPO * 2);
+    sid_gate_off(1); sid_gate_off(2);
+    mario_beat(0);
+    delay_ms(TEMPO * 2);
+    sid_gate_off(0); sid_gate_off(2);
+    
+    /* ===== Compás 4: G bajo ===== */
+    mario_bass(NOTE_G1); mario_beat(0); mario_note(NOTE_G4);
+    delay_ms(TEMPO * 2);
+    sid_gate_off(1); sid_gate_off(2);
+    delay_ms(TEMPO * 2);
+    sid_gate_off(0);
+    
+    /* ===== Compás 5: C _ G _ ===== */
+    mario_bass(NOTE_C3); mario_beat(0); mario_note(NOTE_C5);
+    delay_ms(TEMPO);
+    sid_gate_off(1); sid_gate_off(2);
+    
+    mario_beat(1);
+    delay_ms(TEMPO);
+    sid_gate_off(2);
+    
+    mario_bass(NOTE_G2); mario_beat(0); mario_note(NOTE_G4);
+    delay_ms(TEMPO);
+    sid_gate_off(1); sid_gate_off(2);
+    
+    mario_beat(1);
+    delay_ms(TEMPO);
+    sid_gate_off(2);
+    
+    /* ===== Compás 6: E _ A _ ===== */
+    mario_bass(NOTE_E2); mario_beat(0); mario_note(NOTE_E4);
+    delay_ms(TEMPO);
+    sid_gate_off(1); sid_gate_off(2);
+    
+    mario_beat(1);
+    delay_ms(TEMPO);
+    sid_gate_off(2);
+    
+    mario_bass(NOTE_A2); mario_beat(0); mario_note(NOTE_A4);
+    delay_ms(TEMPO);
+    sid_gate_off(1); sid_gate_off(2);
+    
+    mario_beat(1); mario_note(NOTE_B4);
+    delay_ms(TEMPO);
+    sid_gate_off(1); sid_gate_off(2);
+    
+    /* ===== Compás 7: Bb A G ===== */
+    mario_bass(NOTE_AS2); mario_beat(0); mario_note(NOTE_AS4);
+    delay_ms(TEMPO);
+    sid_gate_off(1); sid_gate_off(2);
+    
+    mario_beat(1); mario_note(NOTE_A4);
+    delay_ms(TEMPO);
+    sid_gate_off(1); sid_gate_off(2);
+    
+    mario_bass(NOTE_G2); mario_beat(0); mario_note(NOTE_G4);
+    delay_ms(TEMPO);
+    sid_gate_off(2);
+    
+    /* G E G (triplet feel) */
+    mario_note(NOTE_E5);
+    delay_ms(TEMPO);
+    
+    mario_beat(0); mario_note(NOTE_G5);
+    delay_ms(TEMPO);
+    sid_gate_off(2);
+    
+    /* ===== Compás 8: A F G _ ===== */
+    mario_bass(NOTE_F2); mario_beat(1); mario_note(NOTE_A5);
+    delay_ms(TEMPO);
+    sid_gate_off(1); sid_gate_off(2);
+    
+    mario_beat(0); mario_note(NOTE_F5);
+    delay_ms(TEMPO);
+    sid_gate_off(1); sid_gate_off(2);
+    
+    mario_beat(1); mario_note(NOTE_G5);
+    delay_ms(TEMPO);
+    sid_gate_off(1); sid_gate_off(2);
+    
+    mario_beat(0);
+    delay_ms(TEMPO);
+    sid_gate_off(2);
+    
+    /* ===== Compás 9: E C D B ===== */
+    mario_bass(NOTE_C3); mario_beat(1); mario_note(NOTE_E5);
+    delay_ms(TEMPO);
+    sid_gate_off(1); sid_gate_off(2);
+    
+    mario_beat(0); mario_note(NOTE_C5);
+    delay_ms(TEMPO);
+    sid_gate_off(1); sid_gate_off(2);
+    
+    mario_bass(NOTE_G2); mario_beat(1); mario_note(NOTE_D5);
+    delay_ms(TEMPO);
+    sid_gate_off(1); sid_gate_off(2);
+    
+    mario_beat(0); mario_note(NOTE_B4);
+    delay_ms(TEMPO * 2);
+    
+    /* Final */
+    sid_gate_off(0);
+    sid_gate_off(1);
+    sid_gate_off(2);
+    
+    uart_puts("  Done!\r\n");
+    
+    LEDS = 0x00; delay_ms(100);
+    LEDS = 0xFF; delay_ms(100);
+    LEDS = 0x00; delay_ms(100);
     LEDS = 0xFF;
-    delay_ms(300);
 }
 
 /* ============================================================================
@@ -510,29 +533,39 @@ void run_demo_polyphonic(void) {
  * ============================================================================ */
 
 void filter_sweep(void) {
-    uint8_t fc;
+    uint16_t cutoff;
     
-    sid_freq(0, NOTE_A3);
+    uart_puts("  Filter Sweep\r\n");
+    sid_volume(15);
     sid_adsr(0, ADSR_SFX);
+    sid_freq(0, NOTE_A3);
     sid_wave(0, SID_SAWTOOTH);
+    
+    /* Activar filtro LP en voz 0, resonancia alta */
+    sid_filter(2047, 8, SID_FILT_V1, SID_FILT_LP);
+    
     sid_gate_on(0);
     
-    sid_filter(0, 15, SID_FILT_V1, SID_FILT_LP);
-    
-    for (fc = 10; fc < 120; fc += 2) {
-        LEDS = ~(1 << ((fc >> 4) & 0x07));
-        SID_FC_HI = fc;
+    /* Sweep de cutoff bajando (de 2047 a 100) */
+    for (cutoff = 2047; cutoff > 100; cutoff -= 32) {
+        LEDS = ~(1 << ((cutoff >> 8) & 0x07));
+        sid_filter_cutoff(cutoff);
         delay_ms(15);
     }
-    for (fc = 120; fc > 10; fc -= 2) {
-        LEDS = ~(1 << ((fc >> 4) & 0x07));
-        SID_FC_HI = fc;
+    /* Sweep de cutoff subiendo (de 100 a 2047) */
+    for (cutoff = 100; cutoff < 2047; cutoff += 32) {
+        LEDS = ~(1 << ((cutoff >> 8) & 0x07));
+        sid_filter_cutoff(cutoff);
         delay_ms(15);
     }
     
     sid_gate_off(0);
+    
+    /* Workaround: el VHDL del NetSID no limpia estados internos */
     sid_filter_off();
     sid_volume(15);
+    
+    delay_ms(100);
     LEDS = 0xFF;
 }
 
@@ -541,6 +574,7 @@ void filter_sweep(void) {
  * ============================================================================ */
 
 void scale_c_major(void) {
+    uart_puts("  Scale C Major\r\n");
     sid_adsr(0, ADSR_LEAD);
     
     play_note(NOTE_C4, SID_SAWTOOTH, 200, 0x01);
@@ -627,7 +661,7 @@ int main(void) {
     while (1) {
         run_demo();
         delay_ms(1000);
-        run_demo_polyphonic();
+        mario_intro();
         delay_ms(1500);
     }
     return 0;
