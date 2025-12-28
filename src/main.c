@@ -377,35 +377,9 @@ void melody_victory(void) {
  * DEMO 2: POLIFONIA 3 VOCES - SECUENCIA ÉPICA
  * ============================================================================ */
 
-/* Acorde con arpeggio rápido */
-void arp_chord(uint16_t n1, uint16_t n2, uint16_t n3, uint8_t led) {
-    LEDS = ~led;
-    /* Arpeggio ascendente rápido */
-    SID_V1_FREQ_LO = n1 & 0xFF; SID_V1_FREQ_HI = n1 >> 8;
-    SID_V1_CTRL = TRIANGLE | GATE;
-    delay_ms(40);
-    SID_V2_FREQ_LO = n2 & 0xFF; SID_V2_FREQ_HI = n2 >> 8;
-    SID_V2_CTRL = PULSE | GATE;
-    delay_ms(40);
-    SID_V3_FREQ_LO = n3 & 0xFF; SID_V3_FREQ_HI = n3 >> 8;
-    SID_V3_CTRL = SAWTOOTH | GATE;
-    delay_ms(120);
-}
-
-void arp_off(void) {
-    SID_V1_CTRL = TRIANGLE;
-    SID_V2_CTRL = PULSE;
-    SID_V3_CTRL = SAWTOOTH;
-    LEDS = 0xFF;
-    delay_ms(30);
-}
-
-/* Acorde sostenido con filtro */
-void poly3_filter(uint16_t n1, uint16_t n2, uint16_t n3, uint16_t dur, uint8_t fc_start, uint8_t fc_end) {
+/* Acorde con sweep de filtro simple */
+void poly3_filter(uint16_t n1, uint16_t n2, uint16_t n3, uint8_t up) {
     uint8_t fc;
-    int8_t step = (fc_end > fc_start) ? 2 : -2;
-    uint16_t steps = (fc_end > fc_start) ? (fc_end - fc_start) : (fc_start - fc_end);
-    uint16_t delay_per_step = dur / (steps / 2 + 1);
     
     SID_V1_FREQ_LO = n1 & 0xFF; SID_V1_FREQ_HI = n1 >> 8;
     SID_V2_FREQ_LO = n2 & 0xFF; SID_V2_FREQ_HI = n2 >> 8;
@@ -414,13 +388,21 @@ void poly3_filter(uint16_t n1, uint16_t n2, uint16_t n3, uint16_t dur, uint8_t f
     SID_V2_CTRL = PULSE | GATE;
     SID_V3_CTRL = SAWTOOTH | GATE;
     
-    SID_RES_FILT = 0xF7;  /* Resonancia alta, filtrar voces 1,2,3 */
+    SID_RES_FILT = 0xF7;
     SID_MODE_VOL = FILT_LP | 0x0F;
     
-    for (fc = fc_start; (step > 0) ? (fc < fc_end) : (fc > fc_end); fc += step) {
-        SID_FC_HI = fc;
-        LEDS = ~(0x3F >> (fc >> 5));
-        delay_ms(delay_per_step);
+    if (up) {
+        for (fc = 20; fc < 100; fc += 4) {
+            SID_FC_HI = fc;
+            LEDS = ~(0x3F >> (fc >> 5));
+            delay_ms(12);
+        }
+    } else {
+        for (fc = 100; fc > 20; fc -= 4) {
+            SID_FC_HI = fc;
+            LEDS = ~(0x3F >> (fc >> 5));
+            delay_ms(12);
+        }
     }
     
     SID_V1_CTRL = SAWTOOTH;
@@ -470,6 +452,80 @@ void poly3(uint16_t n1, uint16_t n2, uint16_t n3, uint16_t dur, uint8_t led) {
     LEDS = 0xFF;
 }
 
+/* ============================================================================
+ * FUNCIONES DE BATERÍA (usando voz 3 con NOISE)
+ * ============================================================================ */
+
+/* Kick drum - frecuencia baja */
+void drum_kick(void) {
+    SID_V3_FREQ_HI = 0x08;
+    SID_V3_AD = 0x00;
+    SID_V3_SR = 0x00;
+    SID_V3_CTRL = NOISE | GATE;
+    LEDS = ~0x01;
+    delay_ms(50);
+    SID_V3_CTRL = NOISE;
+}
+
+/* Snare drum */
+void drum_snare(void) {
+    SID_V3_FREQ_HI = 0x28;
+    SID_V3_AD = 0x00;
+    SID_V3_SR = 0x00;
+    SID_V3_CTRL = NOISE | GATE;
+    LEDS = ~0x08;
+    delay_ms(60);
+    SID_V3_CTRL = NOISE;
+}
+
+/* Hi-hat */
+void drum_hh(void) {
+    SID_V3_FREQ_HI = 0x80;
+    SID_V3_CTRL = NOISE | GATE;
+    LEDS = ~0x20;
+    delay_ms(25);
+    SID_V3_CTRL = NOISE;
+}
+
+/* Batería con bajo y acorde */
+void groove_bar(uint16_t bass, uint16_t chord, uint8_t bars) {
+    uint8_t i;
+    
+    SID_V1_AD = 0x08;
+    SID_V1_SR = 0x80;
+    SID_V1_PW_HI = 0x04;
+    SID_V1_FREQ_LO = bass & 0xFF;
+    SID_V1_FREQ_HI = bass >> 8;
+    
+    SID_V2_AD = 0x22;
+    SID_V2_SR = 0xF2;
+    SID_V2_PW_HI = 0x08;
+    SID_V2_FREQ_LO = chord & 0xFF;
+    SID_V2_FREQ_HI = chord >> 8;
+    SID_V2_CTRL = PULSE | GATE;
+    
+    for (i = 0; i < bars; i++) {
+        SID_V1_CTRL = PULSE | GATE;
+        drum_kick();
+        delay_ms(70);
+        SID_V1_CTRL = PULSE;
+        
+        drum_hh();
+        delay_ms(95);
+        
+        SID_V1_CTRL = PULSE | GATE;
+        drum_snare();
+        delay_ms(60);
+        SID_V1_CTRL = PULSE;
+        
+        drum_hh();
+        delay_ms(95);
+    }
+    
+    SID_V2_CTRL = PULSE;
+    LEDS = 0xFF;
+}
+
 void run_demo_polyphonic(void) {
     
     sid_clear();
@@ -491,28 +547,17 @@ void run_demo_polyphonic(void) {
     SID_V3_AD = 0x00;
     SID_V3_SR = 0xF0;
     
-    uart_puts("\r\n[EPIC POLY]\r\n");
-    
-    /* === INTRO: Arpeggios ascendentes === */
-    arp_chord(NOTE_A3, NOTE_E4, NOTE_A4, 0x01);
-    arp_off();
-    arp_chord(NOTE_D4, NOTE_A4, NOTE_D5, 0x02);
-    arp_off();
-    arp_chord(NOTE_E4, NOTE_B4, NOTE_E5, 0x04);
-    arp_off();
-    arp_chord(NOTE_A4, NOTE_E5, NOTE_A5, 0x08);
-    arp_off();
-    delay_ms(200);
+    uart_puts("\r\n[POLY]\r\n");
     
     /* === SECCIÓN 1: Acordes con sweep de filtro === */
     /* Am - F - C - G (progresión épica) */
-    poly3_filter(NOTE_A3, NOTE_C4, NOTE_E4, 600, 20, 100);  /* Am */
+    poly3_filter(NOTE_A3, NOTE_C4, NOTE_E4, 1);  /* Am - sweep up */
     delay_ms(100);
-    poly3_filter(NOTE_F3, NOTE_A3, NOTE_C4, 600, 100, 30);  /* F */
+    poly3_filter(NOTE_F3, NOTE_A3, NOTE_C4, 0);  /* F - sweep down */
     delay_ms(100);
-    poly3_filter(NOTE_C3, NOTE_E3, NOTE_G3, 600, 30, 110);  /* C */
+    poly3_filter(NOTE_C3, NOTE_E3, NOTE_G3, 1);  /* C - sweep up */
     delay_ms(100);
-    poly3_filter(NOTE_G3, NOTE_B3, NOTE_D4, 600, 110, 20);  /* G */
+    poly3_filter(NOTE_G3, NOTE_B3, NOTE_D4, 0);  /* G - sweep down */
     delay_ms(200);
     
     /* === SECCIÓN 2: Bajo pulsante con acordes suspendidos === */
@@ -520,8 +565,27 @@ void run_demo_polyphonic(void) {
     SID_V1_SR = 0xC0;
     bass_pulse(NOTE_A2, NOTE_E4, NOTE_A4, 4);  /* Am */
     bass_pulse(NOTE_F2, NOTE_C4, NOTE_F4, 4);  /* F */
-    bass_pulse(NOTE_C2, NOTE_G3, NOTE_C4, 4);  /* C */
-    bass_pulse(NOTE_G2, NOTE_D4, NOTE_G4, 4);  /* G */
+    
+    /* === SECCIÓN 3: GROOVE CON BATERÍA === */
+    uart_puts("[DRUMS]\r\n");
+    sid_clear();
+    SID_MODE_VOL = 0x0F;
+    
+    /* 4 compases con batería: Am - F - C - G */
+    groove_bar(NOTE_A2, NOTE_E4, 2);
+    groove_bar(NOTE_F2, NOTE_C4, 2);
+    groove_bar(NOTE_C2, NOTE_G3, 2);
+    groove_bar(NOTE_G2, NOTE_D4, 2);
+    
+    /* Fill final */
+    drum_kick();
+    delay_ms(80);
+    drum_snare();
+    delay_ms(80);
+    drum_kick();
+    delay_ms(80);
+    drum_snare();
+    delay_ms(200);
     
     /* === FINAL: Acorde mayor resolutivo === */
     sid_clear();
